@@ -11,7 +11,18 @@ import {
   RefreshCw,
   Settings,
 } from "lucide-react";
-import { calculateHealthIndex, calculateTrend, convertAQIToUSScale, formatTimestamp, generateDemoAirQualityData, generateRecommendations, getAqiColor, getAqiLevel, getBarColor, getParticleColor } from "../utils/helper";
+import {
+  calculateHealthIndex,
+  calculateTrend,
+  convertAQIToUSScale,
+  formatTimestamp,
+  generateDemoAirQualityData,
+  generateRecommendations,
+  getAqiColor,
+  getAqiLevel,
+  getBarColor,
+  getParticleColor,
+} from "../utils/helper";
 
 interface AirQualityData {
   aqi: number;
@@ -113,7 +124,7 @@ const AirQualityMonitor = () => {
           o3: Math.round(apiData.components.o3 || 0),
           no2: Math.round(apiData.components.no2 || 0),
           so2: Math.round(apiData.components.so2 || 0),
-          co: Math.round((apiData.components.co || 0) / 1000), 
+          co: Math.round((apiData.components.co || 0) / 1000),
           temperature: Math.round(weatherData.main.temp),
           humidity: Math.round(weatherData.main.humidity),
           location: `${weatherData.name}, ${weatherData.sys.country}`,
@@ -280,7 +291,7 @@ const AirQualityMonitor = () => {
       {
         enableHighAccuracy: true,
         timeout: 10000,
-        maximumAge: 300000, 
+        maximumAge: 300000,
       }
     );
   }, [apiKey]);
@@ -328,6 +339,15 @@ const AirQualityMonitor = () => {
     getCurrentLocation,
   ]);
 
+  useEffect(() => {
+    if (observerRef.current) {
+      const sections = document.querySelectorAll("[data-observe]");
+      sections.forEach((section) => {
+        observerRef.current?.observe(section);
+      });
+    }
+  }, [airQualityData]);
+
   const initParticleAnimation = useCallback(() => {
     const canvas = particleCanvasRef.current;
     if (!canvas || !airQualityData) return;
@@ -335,8 +355,15 @@ const AirQualityMonitor = () => {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+    // Cancel any existing animation
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+
+    // Set canvas size
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
 
     const particleCount = Math.min(airQualityData.aqi * 2, 200);
     particlesRef.current = Array.from({ length: particleCount }, () => ({
@@ -379,8 +406,10 @@ const AirQualityMonitor = () => {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+    // Set canvas size
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
 
     const data = [
       { label: "PM2.5", value: airQualityData.pm25, max: 100 },
@@ -390,22 +419,24 @@ const AirQualityMonitor = () => {
       { label: "SO2", value: airQualityData.so2, max: 150 },
     ];
 
-    const barWidth = canvas.width / data.length - 20;
+    const barWidth = (canvas.width - 60) / data.length;
     const maxBarHeight = canvas.height - 60;
 
     data.forEach((item, index) => {
-      const x = index * (barWidth + 20) + 10;
-      const barHeight = (item.value / item.max) * maxBarHeight;
+      const x = index * barWidth + 30;
+      const barHeight = Math.max((item.value / item.max) * maxBarHeight, 2);
       const y = canvas.height - barHeight - 30;
 
+      // Draw bar
       ctx.fillStyle = getBarColor(item.value, item.max);
-      ctx.fillRect(x, y, barWidth, barHeight);
+      ctx.fillRect(x, y, barWidth - 10, barHeight);
 
+      // Draw label
       ctx.fillStyle = "#333";
       ctx.font = "12px Arial";
       ctx.textAlign = "center";
-      ctx.fillText(item.label, x + barWidth / 2, canvas.height - 10);
-      ctx.fillText(item.value.toString(), x + barWidth / 2, y - 5);
+      ctx.fillText(item.label, x + (barWidth - 10) / 2, canvas.height - 10);
+      ctx.fillText(item.value.toString(), x + (barWidth - 10) / 2, y - 5);
     });
   }, [airQualityData]);
 
@@ -416,12 +447,6 @@ const AirQualityMonitor = () => {
           if (entry.isIntersecting) {
             const sectionId = entry.target.id;
             setVisibleSections((prev) => new Set([...prev, sectionId]));
-
-            if (sectionId === "particle-section") {
-              initParticleAnimation();
-            } else if (sectionId === "chart-section") {
-              drawChart();
-            }
           }
         });
       },
@@ -429,7 +454,16 @@ const AirQualityMonitor = () => {
     );
 
     return () => observerRef.current?.disconnect();
-  }, [initParticleAnimation, drawChart]);
+  }, []);
+
+  useEffect(() => {
+    if (visibleSections.has("particle-section") && airQualityData) {
+      initParticleAnimation();
+    }
+    if (visibleSections.has("chart-section") && airQualityData) {
+      drawChart();
+    }
+  }, [visibleSections, airQualityData, initParticleAnimation, drawChart]);
 
   useEffect(() => {
     const updateOnlineStatus = () => setIsOnline(navigator.onLine);
@@ -448,7 +482,7 @@ const AirQualityMonitor = () => {
       if (isOnline && location) {
         refreshData();
       }
-    }, 600000); 
+    }, 600000);
 
     return () => clearInterval(interval);
   }, [isOnline, location, refreshData]);
@@ -659,19 +693,7 @@ const AirQualityMonitor = () => {
               <canvas
                 ref={particleCanvasRef}
                 className="w-full h-64 border rounded-lg bg-gray-50"
-                style={{
-                  display: visibleSections.has("particle-section")
-                    ? "block"
-                    : "none",
-                }}
               />
-              {!visibleSections.has("particle-section") && (
-                <div className="w-full h-64 border rounded-lg bg-gray-50 flex items-center justify-center">
-                  <p className="text-gray-500">
-                    Scroll to view particle animation
-                  </p>
-                </div>
-              )}
             </div>
 
             {/* Pollutant Details */}
@@ -806,17 +828,7 @@ const AirQualityMonitor = () => {
               <canvas
                 ref={chartCanvasRef}
                 className="w-full h-64 border rounded-lg bg-gray-50"
-                style={{
-                  display: visibleSections.has("chart-section")
-                    ? "block"
-                    : "none",
-                }}
               />
-              {!visibleSections.has("chart-section") && (
-                <div className="w-full h-64 border rounded-lg bg-gray-50 flex items-center justify-center">
-                  <p className="text-gray-500">Scroll to view chart</p>
-                </div>
-              )}
             </div>
 
             {/* Health Recommendations */}
